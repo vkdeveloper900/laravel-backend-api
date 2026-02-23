@@ -49,6 +49,45 @@ class UserPackageController extends Controller
         ]);
     }
 
+    /**
+     * My purchased packages (for starting tests – has user_package_id).
+     * GET /api/user/packages/my
+     */
+    public function myPackages(Request $request)
+    {
+        $user = $request->user();
+
+        $userPackages = UserPackage::with('package.tests')
+            ->where('user_id', $user->id)
+            ->orderByDesc('activated_at')
+            ->get()
+            ->map(function ($up) {
+                $isActive = $up->isActive();
+                return [
+                    'user_package_id' => $up->id,
+                    'package_id' => $up->package_id,
+                    'package_name' => $up->package->name ?? '',
+                    'activated_at' => $up->activated_at ? (is_string($up->activated_at) ? $up->activated_at : $up->activated_at->format('c')) : null,
+                    'expiry_date' => $up->expiry_date ? (is_string($up->expiry_date) ? $up->expiry_date : $up->expiry_date->format('Y-m-d')) : null,
+                    'status' => $up->status,
+                    'is_active' => $isActive,
+                    'attempts_used' => $up->attempts_used ?? 0,
+                    'max_attempts' => $up->max_attempts,
+                    'tests_count' => $up->package->tests->count() ?? 0,
+                    'tests' => $up->package->tests->map(fn ($t) => [
+                        'id' => $t->id,
+                        'title' => $t->title,
+                        'total_time' => $t->total_time,
+                    ])->values(),
+                ];
+            });
+
+        return response()->json([
+            'message' => 'My packages.',
+            'data' => $userPackages,
+        ]);
+    }
+
     public function show($id, Request $request)
     {
         $package = Package::with('tests')

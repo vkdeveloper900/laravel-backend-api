@@ -43,6 +43,7 @@ return [
     'twilio' => [
         'sid' => env('TWILIO_SID'),
         'token' => env('TWILIO_TOKEN'),
+        'sms_from' => env('TWILIO_SMS_FROM'), // E.164 e.g. +1234567890
         'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
     ],
 

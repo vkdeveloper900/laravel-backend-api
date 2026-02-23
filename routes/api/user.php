@@ -3,7 +3,11 @@
 use App\Http\Controllers\Api\User\Auth\AuthController as UserAuthController;
 use App\Http\Controllers\Api\User\Auth\SocialAuthController;
 use App\Http\Controllers\Api\User\Order\UserOrderController;
+use App\Http\Controllers\Api\User\NotificationController;
 use App\Http\Controllers\Api\User\Package\UserPackageController;
+use App\Http\Controllers\Api\User\ProfileController;
+use App\Http\Controllers\Api\User\DashboardController;
+use App\Http\Controllers\Api\User\Test\UserTestAttemptController;
 use App\Http\Controllers\Api\User\Test\UserTestController;
 use Illuminate\Support\Facades\Route;
 
@@ -71,6 +75,22 @@ Route::prefix('user')->middleware(['auth:sanctum', 'ensure.user'])->group(functi
 
     /*
     |--------------------------------------------------------------------------
+    | PROFILE
+    |--------------------------------------------------------------------------
+    */
+    Route::get('profile', [ProfileController::class, 'show']);
+    Route::put('profile', [ProfileController::class, 'update']);
+    Route::patch('profile', [ProfileController::class, 'update']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | DASHBOARD
+    |--------------------------------------------------------------------------
+    */
+    Route::get('dashboard', [DashboardController::class, 'index']);
+
+    /*
+    |--------------------------------------------------------------------------
     | PACKAGE MODULE
     |--------------------------------------------------------------------------
     | - List available packages
@@ -79,15 +99,11 @@ Route::prefix('user')->middleware(['auth:sanctum', 'ensure.user'])->group(functi
     |--------------------------------------------------------------------------
     */
     Route::prefix('packages')->group(function () {
-
-        // Fetch all active packages
         Route::get('/', [UserPackageController::class, 'index']);
-
-        // Fetch single package detail
+        Route::get('my', [UserPackageController::class, 'myPackages']);
         Route::get('{id}', [UserPackageController::class, 'show']);
-
-        // Buy package (create order)
         Route::post('{id}/buy', [UserOrderController::class, 'buy']);
+        Route::post('{userPackageId}/tests/{testId}/start', [UserTestAttemptController::class, 'start']);
     });
 
     /*
@@ -113,20 +129,32 @@ Route::prefix('user')->middleware(['auth:sanctum', 'ensure.user'])->group(functi
     });
 
     Route::prefix('tests')->group(function () {
-
         // List tests of active package
         Route::get('/', [UserTestController::class, 'index']);
-
     });
 
     /*
     |--------------------------------------------------------------------------
-    | FUTURE MODULES (Coming Next)
-    |--------------------------------------------------------------------------
-    | - My Active Packages
-    | - Test Start / Submit
-    | - Result
-    | - Notifications
+    | TEST ATTEMPT (Submit answer → Generate score)
     |--------------------------------------------------------------------------
     */
+    Route::prefix('attempts')->group(function () {
+        Route::get('/', [UserTestAttemptController::class, 'index']);
+        Route::get('{attemptId}', [UserTestAttemptController::class, 'show']);
+        Route::post('{attemptId}/answer', [UserTestAttemptController::class, 'submitAnswer']);
+        Route::post('{attemptId}/submit-score', [UserTestAttemptController::class, 'submitScore']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFICATIONS
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('new', [NotificationController::class, 'getNew']);
+        Route::get('unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('mark-all-read', [NotificationController::class, 'markAllRead']);
+        Route::patch('{receiverId}/read', [NotificationController::class, 'markRead']);
+    });
 });

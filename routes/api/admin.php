@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\Coupon\CouponController;
 use App\Http\Controllers\Api\Admin\Dashboard\DashboardController;
 use App\Http\Controllers\Api\Admin\Meta\MetaController;
 use App\Http\Controllers\Api\Admin\Meta\QuestionImportExportController;
+use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationController;
 use App\Http\Controllers\Api\Admin\Order\OrderController;
 use App\Http\Controllers\Api\Admin\Order\PaymentController;
 use App\Http\Controllers\Api\Admin\Package\PackageController;
@@ -49,7 +50,7 @@ Route::get('questions/sample', [QuestionImportExportController::class, 'download
 | - Register
 | - Login
 | - Logout
-| - Two Factor Authentication
+| - Two-Factor Authentication
 */
 Route::prefix('admin/auth')->group(function () {
 
@@ -232,6 +233,20 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'ensure.admin'])->group(func
 
         Route::get('permissions', [RolePermissionController::class, 'permissions']);
         Route::post('roles/{id}/permissions', [RolePermissionController::class, 'assignPermissions']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFICATIONS (list, mark read, send to users/admins)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', [AdminNotificationController::class, 'index']);
+        Route::get('new', [AdminNotificationController::class, 'getNew']);
+        Route::get('unread-count', [AdminNotificationController::class, 'unreadCount']);
+        Route::post('mark-all-read', [AdminNotificationController::class, 'markAllRead']);
+        Route::post('send', [AdminNotificationController::class, 'send']);
+        Route::patch('{receiverId}/read', [AdminNotificationController::class, 'markRead']);
     });
 
     /*
