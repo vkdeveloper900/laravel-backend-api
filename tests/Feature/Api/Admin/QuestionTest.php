@@ -21,9 +21,12 @@ class QuestionTest extends TestCase
     {
         parent::setUp();
 
+        \App\Models\Role::create(['name' => 'Admin', 'slug' => 'admin', 'is_active' => true]);
+
         $this->admin = Admin::factory()->create([
             'email' => 'admin@example.com',
             'password' => 'password123',
+            'status' => 'active',
         ]);
 
         $response = $this->postJson('/api/admin/auth/login', [

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\User\Order;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendPackagePurchasedNotification;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Payment;
@@ -182,6 +183,8 @@ class UserOrderController extends Controller
             ]);
 
             DB::commit();
+
+            SendPackagePurchasedNotification::dispatch($order->id);
 
             return response()->json([
                 'message' => 'Payment successful. Package activated.'

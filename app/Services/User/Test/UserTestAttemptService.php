@@ -2,6 +2,7 @@
 
 namespace App\Services\User\Test;
 
+use App\Jobs\SendTestCompletedNotification;
 use App\Models\Question;
 use App\Models\Test;
 use App\Models\User;
@@ -32,7 +33,8 @@ class UserTestAttemptService
 
         $test = Test::with('testSections.section')->findOrFail($testId);
 
-        $packageTestIds = $userPackage->package->tests()->pluck('id')->toArray();
+        // Ensure we pluck fully-qualified column to avoid ambiguous 'id' with joins
+        $packageTestIds = $userPackage->package->tests()->pluck('tests.id')->toArray();
         if (!in_array($testId, $packageTestIds, true)) {
             throw new \InvalidArgumentException('This test is not part of your package.');
         }
@@ -101,7 +103,8 @@ class UserTestAttemptService
         }
         $isCorrect = null;
 
-        if ($question->question_type === 'mcq' && $questionOptionId !== null) {
+        // Whenever user selected an option, set is_correct from that option (for MCQ scoring)
+        if ($questionOptionId !== null) {
             $option = $question->options->firstWhere('id', $questionOptionId);
             $isCorrect = $option ? (bool) $option->is_correct : false;
         }
@@ -144,10 +147,15 @@ class UserTestAttemptService
 
     /**
      * Generate score and mark attempt completed. Returns section-wise and total result.
+     * MCQ: count correct answers. Scale/Range: sum selected option's score_value.
      */
     public function generateScore(User $user, int $attemptId): array
     {
-        $attempt = UserTestAttempt::with(['attemptQuestions.section', 'test'])
+        $attempt = UserTestAttempt::with([
+            'attemptQuestions.question.options',
+            'attemptQuestions.section',
+            'test',
+        ])
             ->where('id', $attemptId)
             ->where('user_id', $user->id)
             ->firstOrFail();
@@ -161,16 +169,24 @@ class UserTestAttemptService
             'completed_at' => now(),
         ]);
 
-        $answers = UserTestAnswer::where('user_test_attempt_id', $attemptId)
-            ->whereNotNull('is_correct')
+        SendTestCompletedNotification::dispatch($attemptId);
+
+        $answers = UserTestAnswer::with('questionOption')
+            ->where('user_test_attempt_id', $attemptId)
             ->get()
             ->keyBy('question_id');
 
         $sectionWise = [];
         $totalCorrect = 0;
+        $totalScalePoints = 0;
         $totalQuestions = 0;
+        $maxPossibleScore = 0;
 
         foreach ($attempt->attemptQuestions as $aq) {
+            $question = $aq->question;
+            if (!$question) {
+                continue;
+            }
             $sectionId = $aq->section_id;
             $sectionName = $aq->section->name ?? 'Section';
             if (!isset($sectionWise[$sectionId])) {
@@ -179,16 +195,37 @@ class UserTestAttemptService
                     'section_name' => $sectionName,
                     'correct' => 0,
                     'total' => 0,
+                    'points' => 0,
+                    'max_points' => 0,
                 ];
             }
             $sectionWise[$sectionId]['total']++;
             $totalQuestions++;
+
             $ans = $answers->get($aq->question_id);
-            if ($ans && $ans->is_correct) {
-                $sectionWise[$sectionId]['correct']++;
-                $totalCorrect++;
+
+            if ($question->question_type === 'scale') {
+                $points = $ans && $ans->questionOption ? (int) $ans->questionOption->score_value : 0;
+                $maxForQuestion = $question->options->isEmpty() ? 0 : (int) $question->options->max('score_value');
+                $sectionWise[$sectionId]['points'] += $points;
+                $sectionWise[$sectionId]['max_points'] += $maxForQuestion;
+                $totalScalePoints += $points;
+                $maxPossibleScore += $maxForQuestion;
+            } else {
+                // MCQ
+                $sectionWise[$sectionId]['max_points'] += 1;
+                $maxPossibleScore += 1;
+                if ($ans && $ans->is_correct) {
+                    $sectionWise[$sectionId]['correct']++;
+                    $totalCorrect++;
+                }
             }
         }
+
+        $totalObtained = $totalCorrect + $totalScalePoints;
+        $scorePercentage = $maxPossibleScore > 0
+            ? round(($totalObtained / $maxPossibleScore) * 100, 2)
+            : 0;
 
         return [
             'message' => 'Result generated.',
@@ -199,8 +236,11 @@ class UserTestAttemptService
             'completed_at' => $attempt->completed_at->toIso8601String(),
             'section_wise' => array_values($sectionWise),
             'total_correct' => $totalCorrect,
+            'total_scale_points' => $totalScalePoints,
             'total_questions' => $totalQuestions,
-            'score_percentage' => $totalQuestions > 0 ? round(($totalCorrect / $totalQuestions) * 100, 2) : 0,
+            'total_obtained' => $totalObtained,
+            'max_possible_score' => $maxPossibleScore,
+            'score_percentage' => $scorePercentage,
         ];
     }
 
@@ -297,15 +337,28 @@ class UserTestAttemptService
 
     protected function resultResponse(UserTestAttempt $attempt): array
     {
-        $answers = UserTestAnswer::where('user_test_attempt_id', $attempt->id)
-            ->whereNotNull('is_correct')
+        $attempt->load([
+            'attemptQuestions.question.options',
+            'attemptQuestions.section',
+            'test',
+        ]);
+
+        $answers = UserTestAnswer::with('questionOption')
+            ->where('user_test_attempt_id', $attempt->id)
             ->get()
             ->keyBy('question_id');
 
         $sectionWise = [];
         $totalCorrect = 0;
+        $totalScalePoints = 0;
         $totalQuestions = 0;
+        $maxPossibleScore = 0;
+
         foreach ($attempt->attemptQuestions as $aq) {
+            $question = $aq->question;
+            if (!$question) {
+                continue;
+            }
             $sid = $aq->section_id;
             $name = $aq->section->name ?? 'Section';
             if (!isset($sectionWise[$sid])) {
@@ -314,15 +367,36 @@ class UserTestAttemptService
                     'section_name' => $name,
                     'correct' => 0,
                     'total' => 0,
+                    'points' => 0,
+                    'max_points' => 0,
                 ];
             }
             $sectionWise[$sid]['total']++;
             $totalQuestions++;
-            if ($answers->get($aq->question_id)?->is_correct) {
-                $sectionWise[$sid]['correct']++;
-                $totalCorrect++;
+
+            $ans = $answers->get($aq->question_id);
+
+            if ($question->question_type === 'scale') {
+                $points = $ans && $ans->questionOption ? (int) $ans->questionOption->score_value : 0;
+                $maxForQuestion = $question->options->isEmpty() ? 0 : (int) $question->options->max('score_value');
+                $sectionWise[$sid]['points'] += $points;
+                $sectionWise[$sid]['max_points'] += $maxForQuestion;
+                $totalScalePoints += $points;
+                $maxPossibleScore += $maxForQuestion;
+            } else {
+                $sectionWise[$sid]['max_points'] += 1;
+                $maxPossibleScore += 1;
+                if ($ans && $ans->is_correct) {
+                    $sectionWise[$sid]['correct']++;
+                    $totalCorrect++;
+                }
             }
         }
+
+        $totalObtained = $totalCorrect + $totalScalePoints;
+        $scorePercentage = $maxPossibleScore > 0
+            ? round(($totalObtained / $maxPossibleScore) * 100, 2)
+            : 0;
 
         return [
             'message' => 'Result generated.',
@@ -333,8 +407,11 @@ class UserTestAttemptService
             'completed_at' => $attempt->completed_at?->toIso8601String(),
             'section_wise' => array_values($sectionWise),
             'total_correct' => $totalCorrect,
+            'total_scale_points' => $totalScalePoints,
             'total_questions' => $totalQuestions,
-            'score_percentage' => $totalQuestions > 0 ? round(($totalCorrect / $totalQuestions) * 100, 2) : 0,
+            'total_obtained' => $totalObtained,
+            'max_possible_score' => $maxPossibleScore,
+            'score_percentage' => $scorePercentage,
         ];
     }
 }

@@ -21,8 +21,10 @@ class UserTestController extends Controller
 
         if (!$activePackage) {
             return response()->json([
-                'message' => 'No active package found.'
-            ], 404);
+                'message' => 'No active package found.',
+                'package' => null,
+                'tests' => [],
+            ], 200);
         }
 
         $tests = $activePackage->package->tests
@@ -41,7 +43,7 @@ class UserTestController extends Controller
         return response()->json([
             'package' => [
                 'id' => $activePackage->package->id,
-                'title' => $activePackage->package->title,
+                'title' => $activePackage->package->name ?? $activePackage->package->title ?? 'Package',
                 'expiry_date' => $activePackage->expiry_date,
             ],
             'tests' => $tests

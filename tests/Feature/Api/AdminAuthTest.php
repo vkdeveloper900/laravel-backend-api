@@ -14,6 +14,15 @@ class AdminAuthTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \App\Models\Role::firstOrCreate(
+            ['slug' => 'admin'],
+            ['name' => 'Admin', 'description' => null, 'is_active' => true]
+        );
+    }
+
     public function test_admin_can_register_and_receive_token(): void
     {
         $role = Role::create(['name' => 'Admin', 'slug' => 'admin']);
@@ -54,6 +63,7 @@ class AdminAuthTest extends TestCase
             'email' => 'admin@example.com',
             'password' => 'password123',
             'role_id' => $role->id,
+            'status' => 'active',
         ]);
 
         $login = $this->postJson('/api/admin/auth/login', [
@@ -100,6 +110,7 @@ class AdminAuthTest extends TestCase
     {
         $admin = Admin::factory()->create([
             'password' => 'password123',
+            'status' => 'active',
         ]);
 
         $login = $this->postJson('/api/admin/auth/login', [
@@ -121,6 +132,7 @@ class AdminAuthTest extends TestCase
     {
         $admin = Admin::factory()->create([
             'password' => 'password123',
+            'status' => 'active',
         ]);
 
         $login = $this->postJson('/api/admin/auth/login', [
